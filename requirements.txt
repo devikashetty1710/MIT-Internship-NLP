@@ -1,5 +1,9 @@
-requests
+mastodon.py
+pandas
+beautifulsoup4
+
+// For reddit scrapping and nlp processing, you can use the following libraries:
+feedparser
 pymongo
+pandas
 nltk
-transformers
-torch
