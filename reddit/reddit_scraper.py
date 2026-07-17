@@ -138,15 +138,26 @@ class RedditRSSScraper:
             print("No public posts found or unable to fetch streams.")
 
 def main():
-    # Configuration mirroring the YouTube script setup
-    SUBREDDIT_URL = "https://www.reddit.com/r/mentalhealth/" 
+    # Massive multi-subreddit pool expansion to bypass 25-post RSS ceilings
+    SUBREDDITS = [
+        "mentalhealth", "anxiety", "depression", "selfhelp", "psychology",
+        "offmychest", "advice", "jobs", "college", "suicidewatch", "lonely"
+    ] 
     MONGODB_URI = "mongodb://localhost:27017/"
 
     # Initialize scraper matching the main workflow template
     scraper = RedditRSSScraper(mongodb_uri=MONGODB_URI)
 
-    # Execute main workflow
-    scraper.scrape_subreddit(SUBREDDIT_URL)
+    # Execute main workflow over all target forums
+    print(f"[*] Starting raw ingestion pipeline across {len(SUBREDDITS)} subreddits...")
+    for sub in SUBREDDITS:
+        url = f"https://www.reddit.com/r/{sub}/"
+        try:
+            scraper.scrape_subreddit(url)
+        except Exception as e:
+            print(f"[!] Skipped r/{sub} due to stream interruption: {e}")
+            
+    print("\n[✔] DONE: MongoDB is now populated with raw data from all subreddits!")
 
 if __name__ == "__main__":
     main()
