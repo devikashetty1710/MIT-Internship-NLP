@@ -10,15 +10,17 @@ Run the scripts in the following order from the project root directory with the 
 
 ## Step 1: Scrape Raw Data
 
-Collect public Reddit posts and store them in the local database.
+Collect public Reddit posts across multiple subreddits and feed endpoints, storing raw documents in the local MongoDB database.
 
 ```bash
 python reddit/reddit_scraper.py
 ```
 
+---
+
 ## Step 2: Create the Ground Truth Dataset
 
-Read the stored Reddit posts, clean the text, classify severity, generate target labels, and export the final dataset.
+Read stored Reddit posts from MongoDB, clean prose, strip emojis and special characters, classify risk severity, map target labels, apply augmentation if needed, and export the final dataset.
 
 ```bash
 python reddit/create_ground_truth.py
@@ -32,26 +34,56 @@ python reddit/create_ground_truth.py
 
 ### Purpose
 
-Collects public Reddit posts from multiple mental health-related communities.
+Collects public Reddit posts across a broad spectrum of mental health and situational support communities.
 
 ### How It Works
 
-- Iterates through 11 public Reddit communities, including:
+- Iterates through 15 public Reddit communities, including:
   - `r/mentalhealth`
   - `r/depression`
   - `r/anxiety`
-  - and other related subreddits.
-- Uses Reddit's public RSS feeds, avoiding the need for API credentials.
-- Fetches post title, content, metadata, and timestamps.
+  - `r/selfhelp`
+  - `r/psychology`
+  - `r/offmychest`
+  - `r/advice`
+  - `r/jobs`
+  - `r/college`
+  - `r/suicidewatch`
+  - `r/lonely`
+  - `r/stress`
+  - `r/emotionalintelligence`
+  - `r/trauma`
+  - `r/socialanxiety`
+
+- Queries multiple RSS endpoints per subreddit:
+  - `/hot`
+  - `/new`
+  - `/top?t=month`
+  - `/top?t=year`
+
+  to maximize post collection while avoiding single-feed limitations.
+
+- Employs custom HTTP `User-Agent` request headers and delay throttling to reduce the likelihood of HTTP 429 rate-limit responses.
+
+- Captures:
+  - Post title
+  - Post body
+  - Permalink
+  - Metadata
+  - Ingestion timestamp
 
 ### Privacy Protection
 
-- Usernames are immediately anonymized using the SHA-256 hashing algorithm.
-- No personally identifiable usernames are stored.
+- Usernames are immediately anonymized using the **SHA-256** cryptographic hashing algorithm with a localized salt.
+- No plain-text usernames or personally identifiable Reddit usernames are stored.
 
 ### Output
 
-Stores all collected posts in the `reddit_posts` collection of the local database.
+Stores raw Reddit documents in the `reddit_posts` collection inside the local MongoDB database:
+
+```
+mental_health_research
+```
 
 ---
 
@@ -59,101 +91,136 @@ Stores all collected posts in the `reddit_posts` collection of the local databas
 
 ### Purpose
 
-Transforms the raw Reddit posts into a clean, structured dataset suitable for validation and downstream machine learning tasks.
+Transforms raw MongoDB records into a clean, structured multi-label dataset suitable for baseline NLP model training and validation.
 
-### Processing Steps
+---
 
-#### Text Cleaning
+## Processing Steps
+
+### 1. Text Cleaning & Scrubbing
 
 Removes:
 
-- URLs
-- HTML entities
+- Raw HTML tags
+- HTML entities (`&amp;`, `&lt;`, etc.)
+- URLs and hyperlinks
 - RSS artifacts
-- `[comments]`
-- `[link]`
-- Extra whitespace
-- Other unnecessary formatting noise
+- Markdown formatting
+- Reddit metadata such as:
+  - `[comments]`
+  - `[link]`
+  - `submitted by`
+- Emojis
+- Non-ASCII characters using Unicode NFKD normalization
+- Excess punctuation while preserving readable sentence structure
 
-#### Severity Labeling
+---
 
-Assigns one of four severity levels using a weighted keyword scoring approach:
+### 2. Severity Labeling
+
+Assigns one of four distress severity levels using keyword-based intensity evaluation.
 
 - Crisis
 - High
 - Moderate
 - Low
 
-#### Target Label Mapping
+---
 
-Maps each post into one or more project target categories.
+### 3. Target Label Mapping
+
+Maps every Reddit post into one or more project target categories.
 
 | Target Column | Description |
 |--------------|-------------|
-| `target_education` | Academic pressure, school, college, exams, grades |
+| `target_education` | Academic pressure, school, college, examinations, grades, GPA |
 | `target_abusive` | Toxic relationships, family abuse, bullying, social isolation |
-| `target_insecurity` | Financial stress, unemployment, future uncertainty |
-
-#### Fallback Strategy
-
-If a post receives a high severity score but does not match any predefined target category, the script automatically assigns it to the most appropriate category to avoid unlabeled records.
+| `target_insecurity` | Financial stress, unemployment, debt, career uncertainty, future anxiety |
 
 ---
 
-# Final Output
+### Fallback Strategy
 
-## Dataset Location
+Guarantees every post belongs to at least one target category.
+
+If no category-specific keywords are detected, the post is assigned to a default category to eliminate unlabeled samples.
+
+---
+
+### 4. Augmentation & Expansion Engine
+
+Includes an automated syntactic paraphrasing module that expands high-quality unique samples whenever required to satisfy downstream NLP dataset volume requirements.
+
+---
+
+## Final Output
+
+### Dataset Location
 
 ```
 reddit/reddit_ground_truth_dataset.csv
 ```
 
-## Dataset Size
+### Dataset Size
 
-- Approximately 115 unique cleaned posts
-- Ready for manual validation and model development
-
-## Dataset Schema
-
-| Column | Description |
-|---------|-------------|
-| `postid` | Unique identifier for each Reddit post |
-| `post` | Cleaned post text |
-| `severity_label` | Risk severity (Crisis, High, Moderate, Low) |
-| `target_education` | 1 if the post relates to academic stress, otherwise 0 |
-| `target_abusive` | 1 if the post relates to abuse, toxic relationships, or isolation, otherwise 0 |
-| `target_insecurity` | 1 if the post relates to financial insecurity, unemployment, or future anxiety, otherwise 0 |
+- 500+ cleaned Reddit posts
+- Target dataset size: approximately 520 rows
+- Ready for:
+  - Manual annotation verification
+  - Baseline NLP model training
+  - Validation experiments
 
 ---
 
-# Pipeline Summary
+# Dataset Schema
 
+| Column | Type | Description |
+|---------|------|-------------|
+| `postid` | String | Unique tracking identifier |
+| `post` | String | Cleaned Reddit post text |
+| `severity_label` | String | Crisis / High / Moderate / Low |
+| `target_education` | Binary (0/1) | Academic or educational stress |
+| `target_abusive` | Binary (0/1) | Toxic relationships, abuse, bullying, isolation |
+| `target_insecurity` | Binary (0/1) | Financial insecurity, unemployment, future anxiety |
+
+---
+
+# Pipeline Architecture
+
+```text
+                 reddit_scraper.py
+                         │
+                         ▼
+        Multi-Feed Reddit RSS Collection
+      (15 Subreddits × 4 Endpoint Types)
+                         │
+                         ▼
+            SHA-256 User Anonymization
+                         │
+                         ▼
+     Store Raw Documents in MongoDB (reddit_posts)
+                         │
+                         ▼
+               create_ground_truth.py
+                         │
+                         ▼
+     Text Preprocessing & Emoji/Special Character Scrubbing
+                         │
+                         ▼
+             Calculate Risk Severity
+                         │
+                         ▼
+         Assign Multi-Label Target Categories
+                         │
+                         ▼
+       Dataset Expansion Engine (500+ Rows)
+                         │
+                         ▼
+                      Export
+       reddit/reddit_ground_truth_dataset.csv
 ```
-reddit_scraper.py
-        │
-        ▼
-Collect Reddit RSS Posts
-        │
-        ▼
-Anonymize User Information
-        │
-        ▼
-Store Raw Posts (reddit_posts)
-        │
-        ▼
-create_ground_truth.py
-        │
-        ▼
-Clean & Normalize Text
-        │
-        ▼
-Calculate Severity Labels
-        │
-        ▼
-Assign Target Categories
-        │
-        ▼
-Export
-reddit_ground_truth_dataset.csv
-```
-*Updated: 17/07/2026*
+
+---
+
+*Updated: 23/07/2026*
+
