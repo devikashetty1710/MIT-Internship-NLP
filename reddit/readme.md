@@ -1,4 +1,3 @@
-````markdown
 # Reddit Data Ingestion & Dataset Curation Pipeline
 
 This folder contains the complete end-to-end pipeline for collecting public Reddit text data, cleaning and preprocessing it, and building a structured ground-truth validation dataset for the Mental Health Risk Detection project.
@@ -224,4 +223,4 @@ reddit/reddit_ground_truth_dataset.csv
 ---
 
 *Updated: 23/07/2026*
-````
+
