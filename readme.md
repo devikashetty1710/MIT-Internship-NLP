@@ -127,7 +127,11 @@ The preprocessing pipeline now removes:
 
 while preserving meaningful sentence structure for NLP processing.
 
+## 5. Merged all three datasets
+
+The different datasets of three different social media platform were merged to generate one single dataset for further processing. 
+
 ---
 
-*Updated: 23/07/2026*
+*Updated: 29/07/2026*
 
