@@ -89,6 +89,8 @@ Metrics Reported: Mean and Standard Deviation for Accuracy, Precision, Recall, a
 |---|---:|---:|---:|---:|
 | **BERT (base-uncased)** | 0.7215 ± 0.0245 | 0.7226 ± 0.0298 | 0.7135 ± 0.0261 | 0.7166 ± 0.0268 |
 | **RoBERTa (base)** | **0.7378 ± 0.0282** | **0.7427 ± 0.0305** | **0.7299 ± 0.0282** | **0.7341 ± 0.0281** |
+
+
 Conclusion: RoBERTa outperformed BERT across all reported metrics, demonstrating higher efficacy in capturing the nuanced, conversational distress patterns present in social media text.
 
 Updated: 30/08/2026
