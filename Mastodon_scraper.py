@@ -1374,82 +1374,6 @@ def get_posts():
     )
 
 
-# ============================================================
-# GET COMMENTS
-# ============================================================
-
-def get_comments(post_id):
-
-    comments = []
-
-    try:
-
-        context = mastodon.status_context(
-            post_id
-        )
-
-        descendants = context.get(
-            "descendants",
-            []
-        )
-
-
-        for reply in descendants:
-
-            text = clean_text(
-                reply.get(
-                    "content",
-                    ""
-                )
-            )
-
-
-            if not text:
-
-                continue
-
-
-            if not is_english_or_hindi(
-                text
-            ):
-
-                continue
-
-
-            # Remove obvious article/promotional comments
-            if is_news_or_article(
-                text
-            ):
-
-                continue
-
-
-            if is_promotional(
-                text
-            ):
-
-                continue
-
-
-            comments.append(
-                text
-            )
-
-
-    except Exception as e:
-
-        print(
-            f"  Comment error: {e}"
-        )
-
-
-    # Remove duplicate comments
-    return list(
-        dict.fromkeys(
-            comments
-        )
-    )
-
 
 # ============================================================
 # PROCESS POSTS
@@ -1651,17 +1575,7 @@ def scrape():
         )
 
 
-        # ====================================================
-        # COMMENTS
-        #
-        # Comments are collected after the post passes
-        # the primary validation.
-        # ====================================================
-
-        comments = get_comments(
-            post_id
-        )
-
+       
 
         # ====================================================
         # ACCEPT
@@ -1674,9 +1588,6 @@ def scrape():
 
             "caption":
                 caption,
-
-            "comments":
-                comments,
 
             "timestamp":
                 post.get(
@@ -1718,10 +1629,6 @@ def scrape():
             severity
         )
 
-        print(
-            "Comments:",
-            len(comments)
-        )
 
 
         # ====================================================
@@ -1828,98 +1735,54 @@ def scrape():
     return data
 
 
+
 # ============================================================
-# SAVE DATASET
+# SAVE DATASET — CAPTIONS ONLY
 # ============================================================
 
 def save(data):
 
     rows = []
 
-
     for item in data:
 
-        comments = item[
-            "comments"
-        ]
-
-
-        # ----------------------------------------------------
-        # No comments
-        # ----------------------------------------------------
-
-        if not comments:
-
-            rows.append({
-
-                "post_id":
-                    item["post_id"],
-
-                "caption":
-                    item["caption"],
-
-                "comment":
-                    "",
-
-                "timestamp":
-                    item["timestamp"],
-
-                "mental_health":
-                    item["mental_health"],
-
-                "category":
-                    item["category"],
-
-                "severity":
-                    item["severity"]
-            })
-
-
-        # ----------------------------------------------------
-        # Has comments
-        # ----------------------------------------------------
-
-        else:
-
-            for comment in comments:
-
-                rows.append({
-
-                    "post_id":
-                        item["post_id"],
-
-                    "caption":
-                        item["caption"],
-
-                    "comment":
-                        comment,
-
-                    "timestamp":
-                        item["timestamp"],
-
-                    "mental_health":
-                        item["mental_health"],
-
-                    "category":
-                        item["category"],
-
-                    "severity":
-                        item["severity"]
-                })
-
+        rows.append({
+            "post_id": item["post_id"],
+            "caption": item["caption"],
+            "timestamp": item["timestamp"],
+            "mental_health": item["mental_health"],
+            "category": item["category"],
+            "severity": item["severity"]
+        })
 
     df = pd.DataFrame(
         rows,
         columns=[
             "post_id",
             "caption",
-            "comment",
             "timestamp",
             "mental_health",
             "category",
             "severity"
         ]
     )
+
+    # Remove duplicate posts
+    df.drop_duplicates(
+        subset=["post_id"],
+        inplace=True
+    )
+
+    # Save dataset to CSV
+    df.to_csv(
+        OUTPUT_FILE,
+        index=False,
+        encoding="utf-8-sig"
+    )
+
+    print(f"\nDataset saved successfully: {OUTPUT_FILE}")
+    print(f"Total posts saved: {len(df)}")
+
 
 
     # ========================================================
@@ -1929,7 +1792,6 @@ def save(data):
     df = df.drop_duplicates(
         subset=[
             "post_id",
-            "comment"
         ]
     )
 
