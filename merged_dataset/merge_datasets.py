@@ -6,12 +6,12 @@ import os
 # ============================================================
 # Since this script is now INSIDE the merged_dataset folder, 
 # we use "../" to go up one level to the root directory.
-REDDIT_FILE = "../reddit/reddit_data.csv"          
-BLUESKY_FILE = "../bluesky/bluesky.csv"       
-MASTODON_FILE = "../mastodon/mastodon_ground_truth.csv" 
+REDDIT_FILE = "reddit/reddit_data.csv"
+BLUESKY_FILE = "bluesky/bluesky.csv"
+MASTODON_FILE = "mastodon/mastodon_data.csv"
 
 # Output file is now just in the current folder
-OUTPUT_FILE = "unified_master_dataset.csv" 
+OUTPUT_FILE = "merged_dataset/unified_master_dataset.csv"
 
 def load_data(filepath, platform_name):
     if not os.path.exists(filepath):
@@ -19,7 +19,7 @@ def load_data(filepath, platform_name):
         print(f"   Please check the folder and update the filename in the script.")
         return pd.DataFrame()
     
-    df = pd.read_csv(filepath)
+    df = pd.read_csv(filepath, encoding='utf-8-sig')
     print(f"Loaded {platform_name}: {len(df)} rows from {filepath}")
     
     # Standardize text column
@@ -49,7 +49,7 @@ def load_data(filepath, platform_name):
     else:
         df['post_id'] = range(len(df))
         
-    df['post_id'] = f"{platform_name.lower()}_" + df['post_id']
+    df['post_id'] = f"{platform_name.lower()}_" + df['post_id'].astype(str)
     df['platform'] = platform_name
     
     if 'severity' not in df.columns:
