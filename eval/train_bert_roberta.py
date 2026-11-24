@@ -1,5 +1,7 @@
 import os
 import torch
+import json
+import joblib
 import numpy as np
 import pandas as pd
 from sklearn.model_selection import StratifiedKFold
@@ -11,29 +13,28 @@ from tqdm import tqdm
 # Set PyTorch to use available CPU threads for faster extraction
 torch.set_num_threads(os.cpu_count() or 4)
 
+
 def head_tail_tokenize(texts, tokenizer, max_len=512, head_len=255, tail_len=255):
-    """
-    Mentor Requirement: Head and tail truncation (first 256 and last 256 tokens).
-    CRITICAL FIX: BERT/RoBERTa max length is strictly 512. 
-    We cap text tokens at 510 (255 + 255) to leave exactly 2 slots for [CLS] and [SEP].
-    """
     input_ids, attention_masks = [], []
+
     start_tok = tokenizer.cls_token_id if tokenizer.cls_token_id is not None else tokenizer.bos_token_id
     end_tok = tokenizer.sep_token_id if tokenizer.sep_token_id is not None else tokenizer.eos_token_id
     pad_tok = tokenizer.pad_token_id if tokenizer.pad_token_id is not None else 0
 
     for text in texts:
-        # Encode without special tokens first to count accurately
         tokens = tokenizer.encode(str(text), add_special_tokens=False)
-        
-        # If tokens exceed 510, truncate to 255 head + 255 tail
-        if len(tokens) > 510:
+
+        # Keep the beginning and end of long text
+        if len(tokens) > max_len - 2:
             tokens = tokens[:head_len] + tokens[-tail_len:]
-            
-        # Add special tokens ([CLS] at start, [SEP] at end) -> Total max 512
+
+        # Add special tokens
         tokens = [start_tok] + tokens + [end_tok]
-        
-        # Padding to max_len (512)
+
+        # Ensure maximum sequence length
+        tokens = tokens[:max_len]
+
+        # Create attention mask and padding
         pad_len = max_len - len(tokens)
         mask = [1] * len(tokens) + [0] * pad_len
         tokens = tokens + [pad_tok] * pad_len
@@ -41,7 +42,10 @@ def head_tail_tokenize(texts, tokenizer, max_len=512, head_len=255, tail_len=255
         input_ids.append(tokens)
         attention_masks.append(mask)
 
-    return torch.tensor(input_ids, dtype=torch.long), torch.tensor(attention_masks, dtype=torch.long)
+    return (
+        torch.tensor(input_ids, dtype=torch.long),
+        torch.tensor(attention_masks, dtype=torch.long)
+    )
 
 @torch.no_grad()
 def extract_transformer_features(model_name, texts, batch_size=32):
@@ -49,6 +53,7 @@ def extract_transformer_features(model_name, texts, batch_size=32):
     tokenizer = AutoTokenizer.from_pretrained(model_name)
     model = AutoModel.from_pretrained(model_name)
     model.eval()
+    model.to("cpu")
 
     input_ids, attention_masks = head_tail_tokenize(texts, tokenizer)
     dataset = torch.utils.data.TensorDataset(input_ids, attention_masks)
@@ -56,7 +61,8 @@ def extract_transformer_features(model_name, texts, batch_size=32):
 
     embeddings = []
     for b_ids, b_masks in tqdm(dataloader, desc="Extracting Features"):
-        outputs = model(input_ids=b_ids, attention_mask=b_masks)
+        with torch.no_grad():
+            outputs = model(input_ids=b_ids, attention_mask=b_masks)
         
         # Use mean pooling over tokens
         mask_expanded = b_masks.unsqueeze(-1).expand(outputs.last_hidden_state.size()).float()
@@ -68,19 +74,24 @@ def extract_transformer_features(model_name, texts, batch_size=32):
     return np.vstack(embeddings)
 
 def run_fast_cross_validation(model_name, df, seeds=[42, 100, 2024], n_splits=5):
-    # Step 1: Extract features once (cached for speed)
-    features = extract_transformer_features(model_name, df['caption'].values)
+    # Step 1: Extract transformer features
+    features = extract_transformer_features(
+        model_name, df['cleaned_text'].values
+    )
 
     unique_labels = sorted(df['severity'].unique())
-    label2id = {l: i for i, l in enumerate(unique_labels)}
-    df['label_id'] = df['severity'].map(label2id)
-    y = df['label_id'].values
+    label2id = {label: i for i, label in enumerate(unique_labels)}
+    y = df['severity'].map(label2id).values
 
-    print(f"2. Running {n_splits}-Fold Stratified CV x {len(seeds)} Seeds on cached {model_name} features...")
+    print(f"2. Running {n_splits}-Fold Stratified CV x {len(seeds)} Seeds on {model_name}...")
     results = []
 
+    # Step 2: Cross-validation
     for seed in seeds:
-        skf = StratifiedKFold(n_splits=n_splits, shuffle=True, random_state=seed)
+        skf = StratifiedKFold(
+            n_splits=n_splits, shuffle=True, random_state=seed
+        )
+
         for fold, (train_idx, val_idx) in enumerate(skf.split(features, y)):
             X_train, y_train = features[train_idx], y[train_idx]
             X_val, y_val = features[val_idx], y[val_idx]
@@ -93,18 +104,38 @@ def run_fast_cross_validation(model_name, df, seeds=[42, 100, 2024], n_splits=5)
             p, r, f1, _ = precision_recall_fscore_support(
                 y_val, pred_labels, average='macro', zero_division=0
             )
+
             results.append({
-                'seed': seed, 
-                'fold': fold + 1, 
-                'accuracy': acc, 
-                'precision': p, 
-                'recall': r, 
+                'seed': seed,
+                'fold': fold + 1,
+                'accuracy': acc,
+                'precision': p,
+                'recall': r,
                 'f1': f1
             })
 
     res_df = pd.DataFrame(results)
-    
-    # Mentor Requirement: Report mean and standard deviations
+
+    # Step 3: Train final classifier using all available data
+    final_clf = LogisticRegression(max_iter=1000, class_weight='balanced')
+    final_clf.fit(features, y)
+
+    # Step 4: Save final model
+    os.makedirs("models", exist_ok=True)
+
+    model_name_safe = model_name.replace("/", "_")
+    joblib.dump(
+        final_clf,
+        f"models/{model_name_safe}_classifier.joblib"
+    )
+
+    with open(f"models/{model_name_safe}_label_mapping.json", "w") as f:
+        json.dump(label2id, f)
+
+    print(f"Saved classifier: models/{model_name_safe}_classifier.joblib")
+    print(f"Saved label mapping: models/{model_name_safe}_label_mapping.json")
+
+    # Step 5: Return evaluation metrics
     return {
         'Model': model_name,
         'Accuracy': f"{res_df['accuracy'].mean():.4f} ± {res_df['accuracy'].std():.4f}",
@@ -113,8 +144,9 @@ def run_fast_cross_validation(model_name, df, seeds=[42, 100, 2024], n_splits=5)
         'F1-Score (Macro)': f"{res_df['f1'].mean():.4f} ± {res_df['f1'].std():.4f}"
     }
 
+
 if __name__ == "__main__":
-    DATASET_PATH = "merged_dataset/unified_master_dataset.csv"
+    DATASET_PATH = "merged_dataset/preprocessed_dataset.csv"
     
     try:
         df = pd.read_csv(DATASET_PATH)

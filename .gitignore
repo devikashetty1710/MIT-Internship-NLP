@@ -1,6 +1,17 @@
+# Python virtual environments
+.venv/
 venv/
+
+# Environment variables and secrets
 .env
-.env
+
+# Python cache
 __pycache__/
 *.pyc
-mastodon_data.csv
+
+# Temporary backup
+eval/train_bert_roberta_backup.py
+
+# Temporary files
+*.tmp
+merged_dataset/unified_master_dataset_backup.csv
